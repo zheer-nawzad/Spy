@@ -220,6 +220,12 @@ const T = {
     waitingTurnOf: (name) => `چاوەڕوانی ${name}`,
     leaveRoomBtn: "بەجێهێشتنی ژوور",
     hostOnlyNote: "تەنها خاوەنی ژوور دەتوانێت ڕێکخستنەکان بگۆڕێت.",
+    peekBtn: "چاودێری یاریزانێک",
+    peekPickTitle: "کێ دەتەوێت تەماشای بکەیت؟",
+    peekWatching: (name) => `تەماشاکردنی ${name}...`,
+    peekNothingYet: "هێشتا هیچی نەکێشاوە.",
+    closeGameBtn: "کۆتایی یاری",
+    closeGameConfirm: "دڵنیایت؟ هەموو یاریزانان دەگەڕێنەوە بۆ ژوورەکە.",
   },
   en: {
     dir: "ltr",
@@ -312,6 +318,12 @@ const T = {
     waitingTurnOf: (name) => `Waiting for ${name}`,
     leaveRoomBtn: "Leave room",
     hostOnlyNote: "Only the host can change these settings.",
+    peekBtn: "Watch a player",
+    peekPickTitle: "Who do you want to watch?",
+    peekWatching: (name) => `Watching ${name}...`,
+    peekNothingYet: "They haven't drawn anything yet.",
+    closeGameBtn: "End game",
+    closeGameConfirm: "End the game for everyone and go back to the lobby?",
   },
 };
 
@@ -409,6 +421,7 @@ function makeRoom(code, hostId, hostName) {
     readyIds: [], drawerIdx: 0, turnsTaken: 0,
     drawings: {}, relayCanvas: null, relayLog: [],
     votes: {},
+    liveSnapshots: {}, peekUsed: false, // spy peek, classic online mode only
   };
 }
 function netTally(playersArr, votesObj, spyId) {
@@ -724,6 +737,43 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [netTimerActive, netTimerKey]);
 
+  // ---- spy peek (classic online mode) ----
+  // While a player is actively drawing (and hasn't submitted), broadcast a
+  // low-frequency snapshot of their canvas so the Spy can peek at it live.
+  const netBroadcastActive = appMode === "online" && netScreen === "draw" && !!room && room.mode === "classic" && !netMySubmitted;
+  useEffect(() => {
+    if (!netBroadcastActive) return;
+    const id = setInterval(() => {
+      const canvas = netCanvasRef.current;
+      const cur = roomRef.current;
+      if (!canvas || !cur) return;
+      const dataURL = canvas.toDataURL("image/png");
+      const merged = { ...cur, liveSnapshots: { ...(cur.liveSnapshots || {}), [myId]: dataURL } };
+      setRoom(merged);
+      netSave(merged);
+    }, 2000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [netBroadcastActive]);
+
+  const [netPeekPicking, setNetPeekPicking] = useState(false);
+  const [netPeekView, setNetPeekView] = useState(null); // { name, dataURL } | null
+
+  function netOpenPeekPicker() {
+    setNetPeekPicking(true);
+  }
+  async function netPeekAt(targetId, targetName) {
+    setNetPeekPicking(false);
+    const cur = roomRef.current;
+    if (!cur) return;
+    const snap = (cur.liveSnapshots || {})[targetId] || null;
+    setNetPeekView({ name: targetName, dataURL: snap });
+    setTimeout(() => setNetPeekView(null), 5000);
+    const merged = { ...cur, peekUsed: true };
+    setRoom(merged);
+    netSave(merged);
+  }
+
   function netForceEndTurn() {
     const cur = roomRef.current;
     if (!cur) return;
@@ -818,6 +868,8 @@ export default function App() {
       relayCanvas: null,
       relayLog: [],
       votes: {},
+      liveSnapshots: {},
+      peekUsed: false,
       phase: "reveal",
     };
     setRoom(merged);
@@ -854,11 +906,41 @@ export default function App() {
       relayCanvas: null,
       relayLog: [],
       votes: {},
+      liveSnapshots: {},
+      peekUsed: false,
       phase: "reveal",
     };
     setRoom(merged);
     setNetRevealFlipped(false);
     netSave(merged);
+  }
+
+  async function netCloseGameToLobby() {
+    if (!isNetHost || !room) return;
+    const merged = {
+      ...room,
+      phase: "lobby",
+      spyIndex: null, locIndex: null, playerColors: [],
+      readyIds: [], drawerIdx: 0, turnsTaken: 0,
+      drawings: {}, relayCanvas: null, relayLog: [],
+      votes: {}, liveSnapshots: {}, peekUsed: false,
+    };
+    setRoom(merged);
+    setNetRevealFlipped(false);
+    netSave(merged);
+  }
+
+  function renderCloseGameBtn() {
+    if (!isNetHost) return null;
+    return (
+      <div
+        className="bz-topbtn"
+        style={{ marginBottom: 14, display: "inline-flex" }}
+        onClick={() => { if (window.confirm(s.closeGameConfirm)) netCloseGameToLobby(); }}
+      >
+        <Home size={14} /> {s.closeGameBtn}
+      </div>
+    );
   }
 
   function netLeaveRoom() {
@@ -1966,6 +2048,7 @@ export default function App() {
 
     return (
       <div className="bz-shell">
+        {renderCloseGameBtn()}
         <div className="bz-center" style={{ marginTop: 10 }}>
           <div className="bz-label" style={{ color: "#9298B3" }}>{(room.players[myIdx]?.name || "")}</div>
         </div>
@@ -2023,6 +2106,7 @@ export default function App() {
     if (submitted) {
       return (
         <div className="bz-shell">
+          {renderCloseGameBtn()}
           <div className="bz-icon-circle"><Check size={22} color="#52C9BD" /></div>
           <div className="bz-warn">{s.waitingSubmit(submittedCount, room.players.length)}</div>
         </div>
@@ -2031,6 +2115,7 @@ export default function App() {
 
     return (
       <div className="bz-shell">
+        {renderCloseGameBtn()}
         <div className={`bz-role-banner ${netIsSpy ? "spy" : ""}`}>
           {netIsSpy ? (
             <>
@@ -2075,7 +2160,41 @@ export default function App() {
           <button className="bz-btn" style={{ marginTop: 14 }} onClick={netSubmitClassicDrawing}>
             <Check size={17} /> {s.submitDrawing}
           </button>
+
+          {netIsSpy && !room.peekUsed && (
+            <button className="bz-btn bz-btn-teal" style={{ marginTop: 10 }} onClick={netOpenPeekPicker}>
+              <Eye size={17} /> {s.peekBtn}
+            </button>
+          )}
         </div>
+
+        {netPeekPicking && (
+          <div className="bz-peek-overlay" onClick={() => setNetPeekPicking(false)}>
+            <div className="bz-card" style={{ width: "100%", maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+              <div className="bz-label">{s.peekPickTitle}</div>
+              <div className="bz-vote-grid">
+                {room.players.map((p) =>
+                  p.id === myId ? null : (
+                    <button key={p.id} className="bz-vote-btn" onClick={() => netPeekAt(p.id, p.name)}>
+                      {p.name}
+                    </button>
+                  )
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {netPeekView && (
+          <div className="bz-peek-overlay">
+            <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 14 }}>{s.peekWatching(netPeekView.name)}</div>
+            {netPeekView.dataURL ? (
+              <img src={netPeekView.dataURL} alt="peek" />
+            ) : (
+              <div className="bz-warn">{s.peekNothingYet}</div>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -2095,6 +2214,8 @@ export default function App() {
             {s.leaveRoomBtn} <Home size={15} />
           </div>
         </div>
+
+        {renderCloseGameBtn()}
 
         <div className="bz-relay-infocard">
           <div className="col">
@@ -2154,6 +2275,7 @@ export default function App() {
   function renderNetGallery() {
     return (
       <div className="bz-shell">
+        {renderCloseGameBtn()}
         <div className="bz-center" style={{ marginTop: 10, marginBottom: 6 }}>
           <div className="bz-label" style={{ color: "#9298B3" }}>{s.galleryLabel}</div>
           <h1 className="bz-h1" style={{ fontSize: 26 }}>{s.galleryTitle}</h1>
@@ -2193,6 +2315,7 @@ export default function App() {
     if (voted) {
       return (
         <div className="bz-shell">
+          {renderCloseGameBtn()}
           <div className="bz-icon-circle"><Check size={22} color="#52C9BD" /></div>
           <div className="bz-warn">{s.waitingVotes(voteCount, room.players.length)}</div>
         </div>
@@ -2201,6 +2324,7 @@ export default function App() {
 
     return (
       <div className="bz-shell">
+        {renderCloseGameBtn()}
         <div className="bz-center" style={{ marginTop: 10 }}>
           <p className="bz-tagline">{s.whoIsSpy}</p>
         </div>
