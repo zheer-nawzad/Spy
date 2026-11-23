@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
   ArrowLeft, ArrowRight, Check, Users, Timer, Eye, Trophy, RotateCcw, Undo2,
-  Eraser, Pencil, Moon, Sun, Plus, Minus, X, Languages, Home, Shuffle, Sparkles,
+  Eraser, Pencil, Moon, Sun, Plus, Minus, X, Languages, Home, Shuffle, Sparkles, LogIn,
 } from "lucide-react";
 import { supabase, supabaseConfigured } from "./lib/supabase";
 
@@ -196,6 +196,8 @@ const T = {
     playOnlineDesc: "هەر یاریزان مۆبایلی خۆی بەکاردەهێنێت.",
     createRoomBtn: "دروستکردنی ژوور",
     joinRoomBtn: "چوونە ژوورێک",
+    createRoomDesc: "ژوورێکی نوێ دروست بکە و کۆدەکە بدە بە هاوڕێکانت.",
+    joinRoomDesc: "کۆدی ژووری هاوڕێکەت بنووسە و بچۆ ژوورەوە.",
     yourNameLabel: "ناوت",
     yourNamePlaceholder: "ناوت بنووسە",
     enterCodeLabel: "کۆدی ژوور",
@@ -296,6 +298,8 @@ const T = {
     playOnlineDesc: "Everyone uses their own phone.",
     createRoomBtn: "Create a room",
     joinRoomBtn: "Join a room",
+    createRoomDesc: "Start a new room and share the code with friends.",
+    joinRoomDesc: "Type a friend's room code to jump in.",
     yourNameLabel: "Your name",
     yourNamePlaceholder: "Type your name",
     enterCodeLabel: "Room code",
@@ -551,6 +555,7 @@ export default function App() {
   const [myName, setMyName] = useState("");
   const [joinCodeInput, setJoinCodeInput] = useState("");
   const [netScreen, setNetScreen] = useState("landing"); // landing | create | join | (then mirrors room.phase)
+  const [netLandingStep, setNetLandingStep] = useState("choose"); // choose | create | join
   const [room, setRoom] = useState(null);
   const [roomCode, setRoomCode] = useState("");
   const [netError, setNetError] = useState("");
@@ -1174,6 +1179,7 @@ export default function App() {
     setRoom(null);
     setRoomCode("");
     setNetScreen("landing");
+    setNetLandingStep("choose");
     setNetError("");
     setAppMode("menu");
   }
@@ -1839,6 +1845,40 @@ export default function App() {
         border-radius: 8px; padding: 3px 8px; letter-spacing: 0.06em; box-shadow: 0 2px 0 var(--bz-gold-deep);
       }
 
+      /* ---------- online: create / join choice ---------- */
+      .bz-choose { display: flex; flex-direction: column; gap: 18px; margin-top: 28px; }
+      .bz-bigchoice {
+        display: flex; align-items: center; gap: 16px; width: 100%;
+        font-family: inherit; text-align: start; cursor: pointer; border: none;
+        border-radius: 24px; padding: 22px 20px;
+        transition: transform .08s ease, box-shadow .08s ease, filter .15s ease;
+      }
+      .bz-bigchoice:hover { filter: brightness(1.05); }
+      .bz-bigchoice:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+      .bz-bigchoice.gold {
+        background: linear-gradient(180deg, #FFD56B 0%, var(--bz-gold) 55%, #F2AE1D 100%); color: #2A1A00;
+        box-shadow: 0 8px 0 var(--bz-gold-deep), 0 16px 32px rgba(255,194,61,0.25);
+      }
+      .bz-bigchoice.gold:active { transform: translateY(7px); box-shadow: 0 1px 0 var(--bz-gold-deep); }
+      .bz-bigchoice.teal {
+        background: linear-gradient(180deg, #6FF0DF 0%, var(--bz-teal) 60%, #27C5B1 100%); color: #04241F;
+        box-shadow: 0 8px 0 var(--bz-teal-deep), 0 16px 32px rgba(61,220,200,0.22);
+      }
+      .bz-bigchoice.teal:active { transform: translateY(7px); box-shadow: 0 1px 0 var(--bz-teal-deep); }
+      .bz-bigchoice-icon {
+        flex-shrink: 0; width: 60px; height: 60px; border-radius: 18px;
+        display: flex; align-items: center; justify-content: center;
+        background: rgba(255,255,255,0.35); box-shadow: inset 0 -3px 0 rgba(0,0,0,0.12);
+      }
+      .bz-bigchoice-text { display: flex; flex-direction: column; gap: 4px; }
+      .bz-bigchoice-title { font-size: 22px; font-weight: 900; line-height: 1.3; }
+      .bz-bigchoice-desc { font-size: 13.5px; font-weight: 600; opacity: 0.75; line-height: 1.5; }
+      .bz-code-input {
+        text-align: center !important; letter-spacing: 10px; font-size: 24px; font-weight: 900;
+        text-transform: uppercase; padding: 14px; color: var(--bz-gold);
+      }
+      .bz-code-input::placeholder { letter-spacing: 4px; font-size: 15px; font-weight: 600; }
+
       @media (max-width: 380px) {
         .bz-logo { font-size: 38px; }
         .bz-code-big { font-size: 38px; letter-spacing: 7px; }
@@ -2350,7 +2390,7 @@ export default function App() {
           <div className="bz-menu-arrow"><ForwardIcon size={17} /></div>
         </div>
 
-        <div className="bz-card bz-menu-choice" onClick={() => { setAppMode("online"); setNetScreen("landing"); }}>
+        <div className="bz-card bz-menu-choice" onClick={() => { setAppMode("online"); setNetScreen("landing"); setNetLandingStep("choose"); setNetError(""); }}>
           <div className="bz-menu-icon teal"><Sparkles size={26} /></div>
           <div style={{ flex: 1 }}>
             <div className="bz-menu-title">{s.playOnlineTitle}</div>
@@ -2363,49 +2403,90 @@ export default function App() {
   }
 
   function renderNetLanding() {
+    const step = netLandingStep;
+    const goBack = () => {
+      setNetError("");
+      if (step === "choose") setAppMode("menu");
+      else setNetLandingStep("choose");
+    };
+    const title = step === "create" ? s.createRoomBtn : step === "join" ? s.joinRoomBtn : s.playOnlineTitle;
+
     return (
       <div className="bz-shell">
         <div className="bz-topbar">
-          <div className="bz-topbtn" onClick={() => setAppMode("menu")}>
+          <button className="bz-topbtn" onClick={goBack}>
             <BackIcon size={15} /> {s.netBack}
+          </button>
+          <h1 className="bz-h1" style={{ fontSize: 20 }}>{title}</h1>
+        </div>
+
+        {storageMissing && <div className="bz-warn" style={{ color: "#FF5D6C" }}>{s.missingStorage}</div>}
+
+        {step === "choose" && (
+          <div className="bz-choose">
+            <button className="bz-bigchoice gold" onClick={() => { setNetError(""); setNetLandingStep("create"); }}>
+              <span className="bz-bigchoice-icon"><Plus size={30} strokeWidth={2.6} /></span>
+              <span className="bz-bigchoice-text">
+                <span className="bz-bigchoice-title">{s.createRoomBtn}</span>
+                <span className="bz-bigchoice-desc">{s.createRoomDesc}</span>
+              </span>
+            </button>
+            <button className="bz-bigchoice teal" onClick={() => { setNetError(""); setNetLandingStep("join"); }}>
+              <span className="bz-bigchoice-icon"><LogIn size={28} strokeWidth={2.6} /></span>
+              <span className="bz-bigchoice-text">
+                <span className="bz-bigchoice-title">{s.joinRoomBtn}</span>
+                <span className="bz-bigchoice-desc">{s.joinRoomDesc}</span>
+              </span>
+            </button>
           </div>
-          <h1 className="bz-h1" style={{ fontSize: 20 }}>{s.playOnlineTitle}</h1>
-        </div>
+        )}
 
-        {storageMissing && <div className="bz-warn" style={{ color: "#E1594F" }}>{s.missingStorage}</div>}
+        {step === "create" && (
+          <div className="bz-card">
+            <div className="bz-label">{s.yourNameLabel}</div>
+            <input
+              className="bz-input"
+              placeholder={s.yourNamePlaceholder}
+              value={myName}
+              maxLength={16}
+              autoFocus
+              onChange={(e) => setMyName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && myName.trim() && !netBusy) netCreateRoom(); }}
+            />
+            <button className="bz-btn" style={{ marginTop: 16 }} disabled={!myName.trim() || netBusy} onClick={netCreateRoom}>
+              <Plus size={18} /> {s.createRoomBtn}
+            </button>
+            {netError && <div className="bz-warn" style={{ color: "#FF5D6C" }}>{netError}</div>}
+          </div>
+        )}
 
-        <div className="bz-card">
-          <div className="bz-label">{s.yourNameLabel}</div>
-          <input
-            className="bz-input"
-            placeholder={s.yourNamePlaceholder}
-            value={myName}
-            maxLength={16}
-            onChange={(e) => setMyName(e.target.value)}
-          />
-        </div>
-
-        <div style={{ marginTop: 16 }}>
-          <button className="bz-btn" disabled={!myName.trim() || netBusy} onClick={netCreateRoom}>
-            <Plus size={17} /> {s.createRoomBtn}
-          </button>
-        </div>
-
-        <div className="bz-card">
-          <div className="bz-label">{s.enterCodeLabel}</div>
-          <input
-            className="bz-input"
-            placeholder={s.codePlaceholder}
-            value={joinCodeInput}
-            maxLength={4}
-            style={{ textAlign: "center", letterSpacing: 4, fontWeight: 800, textTransform: "uppercase" }}
-            onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
-          />
-          <button className="bz-btn" style={{ marginTop: 12 }} disabled={!myName.trim() || !joinCodeInput.trim() || netBusy} onClick={netJoinRoom}>
-            <ForwardIcon size={17} /> {s.joinRoomBtn}
-          </button>
-          {netError && <div className="bz-warn" style={{ color: "#E1594F" }}>{netError}</div>}
-        </div>
+        {step === "join" && (
+          <div className="bz-card">
+            <div className="bz-label">{s.yourNameLabel}</div>
+            <input
+              className="bz-input"
+              placeholder={s.yourNamePlaceholder}
+              value={myName}
+              maxLength={16}
+              autoFocus
+              onChange={(e) => setMyName(e.target.value)}
+            />
+            <div className="bz-label" style={{ marginTop: 18 }}>{s.enterCodeLabel}</div>
+            <input
+              className="bz-input bz-code-input"
+              placeholder={s.codePlaceholder}
+              value={joinCodeInput}
+              maxLength={4}
+              dir="ltr"
+              onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
+              onKeyDown={(e) => { if (e.key === "Enter" && myName.trim() && joinCodeInput.trim() && !netBusy) netJoinRoom(); }}
+            />
+            <button className="bz-btn bz-btn-teal" style={{ marginTop: 16 }} disabled={!myName.trim() || !joinCodeInput.trim() || netBusy} onClick={netJoinRoom}>
+              <LogIn size={18} /> {s.joinRoomBtn}
+            </button>
+            {netError && <div className="bz-warn" style={{ color: "#FF5D6C" }}>{netError}</div>}
+          </div>
+        )}
       </div>
     );
   }
